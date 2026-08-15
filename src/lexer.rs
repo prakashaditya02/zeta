@@ -126,7 +126,8 @@ impl Lexer {
             } else if is_alphabet(c) || (c == "_") {
                 self.current += 1;
                 self.identifier();
-                Some(self.build_token(Identifier))
+                let ttype: TokenType = check_keyword(&self.source[self.start..self.current]); 
+                Some(self.build_token(ttype))
             } else {
                 return None
             }
@@ -207,4 +208,59 @@ fn is_alphabet(c: &str) -> bool {
 
 fn is_alphanum(c: &str) -> bool {
     return is_digit(c) || is_alphabet(c)
+}
+
+fn check_keyword(lex: &str) -> TokenType {
+    match lex {
+        "and" => And,
+        "or" => Or,
+        "true" => True,
+        "false" => False,
+        "fun" => Fun,
+        "let" => Let,
+        "for" => For,
+        "while" => While,
+        "if" => If,
+        "else" => Else,
+        "print" => Print,
+        "return" => Return,
+        "nil" => Nil,
+        "struct" => Struct,
+        "enum" => Enum,
+        _ => Identifier
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    
+    #[test]
+    fn lexer_checker() {
+        let mut lexer = Lexer::new("let 123.45 () -+//Hi".to_string());
+        let tokens = lexer.scan_tokens();
+
+        assert_eq!(tokens.len(), 7);
+
+        assert_eq!(tokens[0].lexeme, "let");
+        assert_eq!(tokens[0].token, Let);
+
+        assert_eq!(tokens[1].lexeme, "123.45");
+        assert_eq!(tokens[1].token, Number);
+
+        assert_eq!(tokens[2].lexeme, "(");
+        assert_eq!(tokens[2].token, LeftParen);
+
+        assert_eq!(tokens[3].lexeme, ")");
+        assert_eq!(tokens[3].token, RightParen);
+
+        assert_eq!(tokens[4].lexeme, "-");
+        assert_eq!(tokens[4].token, Minus);
+
+        assert_eq!(tokens[5].lexeme, "+");
+        assert_eq!(tokens[5].token, Plus);
+
+        assert_eq!(tokens[6].token, Eof);
+        assert_eq!(tokens[6].lexeme, "");
+    }
 }
