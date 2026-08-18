@@ -1,6 +1,6 @@
-use crate::lexer_token::Token;
-use crate::lexer_token::TokenType;
-use crate::lexer_token::TokenType::*;
+use crate::token::Token;
+use crate::token::TokenType;
+use crate::token::TokenType::*;
 use std::string::String;
 pub struct Lexer {
     source: String,
@@ -263,4 +263,19 @@ mod tests {
         assert_eq!(tokens[6].token, Eof);
         assert_eq!(tokens[6].lexeme, "");
     }
+
+    #[test]
+    fn lexer_string() {
+        let mut lexer = Lexer::new("\"hello world\"".to_string());
+        let tokens = lexer.scan_tokens();
+
+        assert_eq!(tokens.len(), 2);
+
+        assert_eq!(tokens[0].token, String);
+        assert_eq!(tokens[0].lexeme, "hello world");
+        
+        assert_eq!(tokens[1].token, Eof);
+    }
+    
 }
+
