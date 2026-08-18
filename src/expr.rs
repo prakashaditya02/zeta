@@ -6,6 +6,7 @@ pub enum Expr {
     Grouping(Box<Expr>),
     String(String),
     Bool(bool),
+    Identifier(String),
     Nil
 }
 

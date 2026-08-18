@@ -17,12 +17,70 @@ impl Parser {
 
     fn parse_expr(&mut self) -> Expr {
         let c = &self.tokens[self.current];
-        // if c.token != TokenType::Eof {
-        //     self.current += 1;
-        // }
         match c.token {
-            TokenType::Number => return Expr::Number(c.lexeme.parse().unwrap()),
-            _ => return Expr::Nil
+
+            TokenType::Number => {
+                let num = c.lexeme.parse().unwrap();
+                self.advance();
+                return Expr::Number(num)
+            }
+
+            TokenType::Minus | TokenType::Bang => {
+                let operator = self.get_unary_op(&self.peek().token);
+                self.advance();
+                let right = self.parse_prec(Prec::Unary);
+                return Expr::Unary { 
+                    operator: operator, 
+                    right: Box::new(right)
+                }
+            },
+
+            TokenType::LeftParen => {
+                self.advance();
+                let group = self.parse_prec(Prec::None);
+                if self.peek().token != TokenType::RightParen {
+                    panic!();
+                }
+                self.advance();
+                return Expr::Grouping(Box::new(group));
+            },
+
+            TokenType::String => {
+                let val = c.lexeme.clone();
+                self.advance();
+                Expr::String(val)
+            },
+
+            TokenType::Identifier => {
+                let var = c.lexeme.clone();
+                self.advance();
+                Expr::Identifier(var)
+            }
+
+            TokenType::True => {
+                self.advance();
+                Expr::Bool(true)
+            },
+
+            TokenType::False => {
+                self.advance();
+                Expr::Bool(false)
+            },
+
+            TokenType::Nil => {
+                self.advance();
+                Expr::Nil
+            }
+
+            _ => panic!()
+        }
+    }
+
+    fn get_unary_op(&self, token_type: &tt) -> UnaryOp {
+        match token_type {
+            tt::Bang => UnaryOp::Not,
+            tt::Minus => UnaryOp::Negate,
+            _ => panic!()
         }
     }
 
@@ -32,12 +90,12 @@ impl Parser {
             tt::Minus => BinaryOp::Subtract,
             tt::Star => BinaryOp::Multiply,
             tt::Slash => BinaryOp::Divide,
-            // tt::Equal => BinaryOp::Equal,
-            // tt::BangEqual => BinaryOp::NotEqual,
-            // tt::Greater => BinaryOp::Greater,
-            // tt::GreaterEqual => BinaryOp::GreaterEqual,
-            // tt::Less => BinaryOp::Less,
-            // tt::LessEqual => BinaryOp::LessEqual,
+            tt::EqualEqual => BinaryOp::Equal,
+            tt::BangEqual => BinaryOp::NotEqual,
+            tt::Greater => BinaryOp::Greater,
+            tt::GreaterEqual => BinaryOp::GreaterEqual,
+            tt::Less => BinaryOp::Less,
+            tt::LessEqual => BinaryOp::LessEqual,
             _ => panic!()
         }
     }
@@ -57,15 +115,19 @@ impl Parser {
 
     fn parse_prec(&mut self, min_prec: Prec) -> Expr {
         let mut left = self.parse_expr();
-        self.advance();
 
-        let mut prev = self.get_infix_prec(&self.peek().token);
-        while prev > min_prec {
+        let mut precedence = self.get_infix_prec(&self.peek().token);
+        while precedence > min_prec {
             let operator = self.get_binary_op(&self.peek().token);
+
             self.advance();
-            let right = self.parse_prec(prev);
-            left = Expr::Binary { left: Box::new(left), operator: operator, right: Box::new(right) };
-            prev = self.get_infix_prec(&self.peek().token);
+            let right = self.parse_prec(precedence);
+            left = Expr::Binary { 
+                left: Box::new(left),
+                operator: operator,
+                right: Box::new(right) };
+
+            precedence = self.get_infix_prec(&self.peek().token);
         }
 
         return left;
@@ -144,4 +206,119 @@ mod tests {
             }
         );
     }
+
+    #[test]
+    fn parses_negation() {
+        let expr = parse("-123");
+
+        assert_eq!(
+            expr,
+            Expr::Unary {
+                operator: UnaryOp::Negate,
+                right: Box::new(Expr::Number(123.0)),
+            }
+        );
+    }
+
+    #[test]
+    fn parses_double_negation() {
+        let expr = parse("--123");
+
+        assert_eq!(
+            expr,
+            Expr::Unary {
+                operator: UnaryOp::Negate,
+                right: Box::new(
+                    Expr::Unary {
+                        operator: UnaryOp::Negate,
+                        right: Box::new(Expr::Number(123.0)),
+                    }
+                ),
+            }
+        );
+    }
+
+    #[test]
+    fn grouping_overrides_precedence() {
+        let expr = parse("(1 + 2) * 3");
+
+        assert_eq!(
+            expr,
+            Expr::Binary {
+                left: Box::new(
+                    Expr::Grouping(
+                        Box::new(
+                            Expr::Binary {
+                                left: Box::new(Expr::Number(1.0)),
+                                operator: BinaryOp::Add,
+                                right: Box::new(Expr::Number(2.0)),
+                            }
+                        )
+                    )
+                ),
+                operator: BinaryOp::Multiply,
+                right: Box::new(Expr::Number(3.0)),
+            }
+        );
+    }
+
+    #[test]
+    fn parses_nested_grouping() {
+        let expr = parse("((123))");
+
+        assert_eq!(
+            expr,
+            Expr::Grouping(
+                Box::new(
+                    Expr::Grouping(
+                        Box::new(Expr::Number(123.0))
+                    )
+                )
+            )
+        );
+    }
+
+    #[test]
+    fn parses_unary_with_binary() {
+        let expr = parse("-1 + 2");
+
+        assert_eq!(
+            expr,
+            Expr::Binary {
+                left: Box::new(
+                    Expr::Unary {
+                        operator: UnaryOp::Negate,
+                        right: Box::new(Expr::Number(1.0)),
+                    }
+                ),
+                operator: BinaryOp::Add,
+                right: Box::new(Expr::Number(2.0)),
+            }
+        );
+    }
+
+    #[test]
+    fn parses_identifier_expression() {
+        let expr = parse("foo + 123 * bar");
+
+        assert_eq!(
+            expr,
+            Expr::Binary {
+                left: Box::new(
+                    Expr::Identifier("foo".to_string())
+                ),
+                operator: BinaryOp::Add,
+                right: Box::new(
+                    Expr::Binary {
+                        left: Box::new(Expr::Number(123.0)),
+                        operator: BinaryOp::Multiply,
+                        right: Box::new(
+                            Expr::Identifier("bar".to_string())
+                        ),
+                    }
+                ),
+            }
+        );
+    }
+
 }
