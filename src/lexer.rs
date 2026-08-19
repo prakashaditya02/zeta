@@ -222,7 +222,6 @@ fn check_keyword(lex: &str) -> TokenType {
         "while" => While,
         "if" => If,
         "else" => Else,
-        "print" => Print,
         "return" => Return,
         "nil" => Nil,
         "struct" => Struct,

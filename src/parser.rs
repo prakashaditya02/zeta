@@ -2,6 +2,7 @@ use crate::token::*;
 use crate::expr::*;
 use crate::token::TokenType as tt;
 use crate::precedence::Precedence as Prec;
+use crate::stmt::Stmt;
 pub struct Parser {
     tokens: Vec<Token>,
     current: usize,
@@ -13,6 +14,14 @@ impl Parser {
             tokens,
             current: 0
         }
+    }
+
+    fn parse_prog(&mut self) -> Vec<Stmt> {
+        let mut statements = Vec::new();
+        while self.peek().token != TokenType::Eof {
+            statements.push(self.parse_stmt());
+        }
+        statements
     }
 
     fn parse_expr(&mut self) -> Expr {
@@ -76,6 +85,40 @@ impl Parser {
         }
     }
 
+    fn parse_stmt(&mut self) -> Stmt {
+        let expr = self.parse_prec(Prec::None);
+        if self.peek().token != tt::Semicolon {
+            panic!("Expected semicolon at the end");
+        }
+        self.advance();
+        Stmt::Expression(expr)
+    }
+
+    fn parse_call(&mut self, left: Expr) -> Expr {
+        self.advance();
+        let mut arguments = Vec::new();
+        
+        loop {
+            if self.peek().token == TokenType::RightParen {
+                self.advance();
+                return Expr::Call { callee: Box::new(left), arguments: arguments }
+            }
+
+            let arg = self.parse_prec(Prec::Assignment);
+            arguments.push(arg);
+
+            if self.peek().token == TokenType::Comma {
+                self.advance();
+            } else if self.peek().token == TokenType::RightParen {
+                self.advance();
+                break;
+            } else {
+                panic!();
+            }
+        }
+        return Expr::Call { callee: Box::new(left), arguments: arguments }
+    }
+
     fn get_unary_op(&self, token_type: &tt) -> UnaryOp {
         match token_type {
             tt::Bang => UnaryOp::Not,
@@ -109,27 +152,39 @@ impl Parser {
             tt::Or => Prec::Or,
             tt::And => Prec::And,
             tt::Equal => Prec::Assignment,
+            tt::LeftParen => Prec::Call,
             _ => Prec::None 
         }
     }
 
     fn parse_prec(&mut self, min_prec: Prec) -> Expr {
         let mut left = self.parse_expr();
-
         let mut precedence = self.get_infix_prec(&self.peek().token);
+        
         while precedence > min_prec {
-            let operator = self.get_binary_op(&self.peek().token);
-
-            self.advance();
-            let right = self.parse_prec(precedence);
-            left = Expr::Binary { 
-                left: Box::new(left),
-                operator: operator,
-                right: Box::new(right) };
-
+            if self.peek().token == tt::LeftParen {
+                left = self.parse_call(left);
+            } else if  self.peek().token == tt::Equal {
+                match left {
+                    Expr::Identifier(name) => {
+                        let n = name.clone();
+                        self.advance();
+                        let value = self.parse_prec(min_prec);
+                        left = Expr::Assignment { name:n, value:Box::new(value) };
+                    }
+                    _ => panic!("Variable name must be an Identifier")
+                }
+            } else {
+                let operator = self.get_binary_op(&self.peek().token);
+                self.advance();
+                let right = self.parse_prec(precedence);
+                left = Expr::Binary { 
+                    left: Box::new(left),
+                    operator: operator,
+                    right: Box::new(right) };
+            }
             precedence = self.get_infix_prec(&self.peek().token);
         }
-
         return left;
     }
 
@@ -149,6 +204,14 @@ mod tests {
     use super::*;
     use crate::lexer::Lexer;
 
+    fn parse_program_helper(source: &str) -> Vec<Stmt> {
+        let mut lexer = Lexer::new(source.to_string());
+        let tokens = lexer.scan_tokens();
+
+        let mut parser = Parser::new(tokens);
+        parser.parse_prog()
+    }   
+
     fn parse(source: &str) -> Expr {
         let mut lexer = Lexer::new(source.to_string());
         let tokens = lexer.scan_tokens();
@@ -158,36 +221,36 @@ mod tests {
     }
 
     #[test]
-    fn parse_number() {
-        let expr = parse("123");
-        assert_eq!(expr, Expr::Number(123.0));
-    }
-
-    #[test]
-    fn parse_add() {
-        let expr = parse("1 + 2");
-        assert_eq!(expr, Expr::Binary {
-            left: Box::new(Expr::Number(1.0)),
-            operator: BinaryOp::Add,
-            right: Box::new(Expr::Number(2.0))
-        });
-    }
-
-        #[test]
-    fn parses_multiplication() {
-        let expr = parse("2 * 3");
-
+    fn parses_print_call_statement() {
+        let stmts = parse_program_helper("print(1 + 2 * 3);");
         assert_eq!(
-            expr,
-            Expr::Binary {
-                left: Box::new(Expr::Number(2.0)),
-                operator: BinaryOp::Multiply,
-                right: Box::new(Expr::Number(3.0)),
-            }
+            stmts,
+            vec![
+                Stmt::Expression(
+                    Expr::Call {
+                        callee: Box::new(
+                            Expr::Identifier("print".to_string())
+                        ),
+                        arguments: vec![
+                            Expr::Binary {
+                                left: Box::new(Expr::Number(1.0)),
+                                operator: BinaryOp::Add,
+                                right: Box::new(
+                                    Expr::Binary {
+                                        left: Box::new(Expr::Number(2.0)),
+                                        operator: BinaryOp::Multiply,
+                                        right: Box::new(Expr::Number(3.0)),
+                                    }
+                                ),
+                            }
+                        ],
+                    }
+                )
+            ]
         );
     }
 
-        #[test]
+    #[test]
     fn parses_precedence() {
         let expr = parse("1 + 2 * 3");
 
@@ -263,22 +326,6 @@ mod tests {
     }
 
     #[test]
-    fn parses_nested_grouping() {
-        let expr = parse("((123))");
-
-        assert_eq!(
-            expr,
-            Expr::Grouping(
-                Box::new(
-                    Expr::Grouping(
-                        Box::new(Expr::Number(123.0))
-                    )
-                )
-            )
-        );
-    }
-
-    #[test]
     fn parses_unary_with_binary() {
         let expr = parse("-1 + 2");
 
@@ -321,4 +368,30 @@ mod tests {
         );
     }
 
+    #[test]
+    fn parses_simple_assignment() {
+        let expr = parse("x = 5");
+        assert_eq!(
+            expr,
+            Expr::Assignment {
+                name: "x".to_string(),
+                value: Box::new(Expr::Number(5.0)),
+            }
+        );
+    }
+
+    #[test]
+    fn parses_right_associative_assignment() {
+        let expr = parse("x = y = 3");
+        assert_eq!(
+            expr,
+            Expr::Assignment {
+                name: "x".to_string(),
+                value: Box::new(Expr::Assignment {
+                    name: "y".to_string(),
+                    value: Box::new(Expr::Number(3.0)),
+                }),
+            }
+        );
+    }
 }

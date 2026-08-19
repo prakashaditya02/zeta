@@ -1,13 +1,15 @@
 #[derive(PartialEq, Debug)]
 pub enum Expr {
-    Binary{ left: Box<Expr>, operator: BinaryOp, right: Box<Expr>},
-    Unary{ operator: UnaryOp, right: Box<Expr>},
+    Nil,
+    Assignment {name: String, value: Box<Expr>},
+    Binary {left: Box<Expr>, operator: BinaryOp, right: Box<Expr>},
+    Unary {operator: UnaryOp, right: Box<Expr>},
+    Call {callee: Box<Expr>, arguments: Vec<Expr>},
     Number(f64),
     Grouping(Box<Expr>),
     String(String),
     Bool(bool),
     Identifier(String),
-    Nil
 }
 
 #[derive(PartialEq, Debug)]
