@@ -1,3 +1,5 @@
+use crate::token::TokenType::RightParen;
+use crate::token::TokenType::While;
 use crate::token::*;
 use crate::expr::*;
 use crate::token::TokenType as tt;
@@ -47,10 +49,7 @@ impl Parser {
             TokenType::LeftParen => {
                 self.advance();
                 let group = self.parse_prec(Prec::None);
-                if self.peek().token != TokenType::RightParen {
-                    panic!();
-                }
-                self.advance();
+                self.expect_token(TokenType::RightParen, "Expected ')'");
                 return Expr::Grouping(Box::new(group));
             },
 
@@ -86,12 +85,95 @@ impl Parser {
     }
 
     fn parse_stmt(&mut self) -> Stmt {
-        let expr = self.parse_prec(Prec::None);
-        if self.peek().token != tt::Semicolon {
-            panic!("Expected semicolon at the end");
+        match self.peek().token {
+            tt::Let => {
+                self.advance();
+                if self.peek().token != tt::Identifier {
+                    panic!("Expected Identifier")
+                }
+                let name = self.peek().lexeme.clone();
+                let mut val: Option<Expr> = None;
+                self.advance();
+                if self.peek().token == tt::Equal {
+                    self.advance();
+                    val = Some(self.parse_prec(Prec::None));
+                }
+                self.expect_token(tt::Semicolon, "Expected semicolon");
+                return Stmt::Let { name: name, value: (val) }
+            },
+
+            tt::If => {
+                self.advance();
+
+                self.expect_token(tt::LeftParen, "Expected opening parentheses");
+                let condition = self.parse_prec(Prec::None);
+                self.expect_token(tt::RightParen, "Expected closing parentheses");
+
+                let then = self.parse_block();
+
+                let mut else_body = None;
+                if self.peek().token == tt::Else {
+                    self.advance();
+                    else_body = Some(self.parse_block());
+                }
+                return Stmt::If { condition: condition, then_branch: then, else_branch: else_body }
+            },
+
+            tt::While => {
+                self.advance();
+
+                self.expect_token(tt::LeftParen, "Expected opening parentheses");
+                let condition = self.parse_prec(Prec::None);
+                self.expect_token(tt::RightParen, "Expected closing parentheses");
+                let body = self.parse_block();
+                return Stmt::While { condition: condition, body: body }
+            },
+
+            tt::Fun => {
+                self.advance();
+
+                if self.peek().token != tt::Identifier { panic!("Expected Identifier") }
+                let name = self.peek().lexeme.clone();
+                self.advance();
+
+                self.expect_token(tt::LeftParen, "Expected opening parantheses");
+                let mut arguments = Vec::new();
+                loop {
+                    if self.peek().token == tt::RightParen {
+                        self.advance();
+                        break;
+                    }
+
+                    if self.peek().token != tt::Identifier { panic!("Expected ")}
+                    let arg: String = self.peek().lexeme.clone();
+                    arguments.push(arg);
+                    self.advance();
+                    if self.peek().token != tt::RightParen {
+                        self.expect_token(tt::Comma, "Expected Comma or closing parentheses");
+                    }
+
+                }
+
+                let body = self.parse_block();
+                Stmt::Fun { name: name, parameters: arguments, body: body }
+            },
+
+            tt::Return => {
+                self.advance();
+                let mut val = None;
+                if self.peek().token != tt::Semicolon {
+                    val = Some(self.parse_prec(Prec::None));
+                }
+                self.expect_token(tt::Semicolon, "Expected semicolon");
+                Stmt::Return(val)
+            },
+
+            _ => {
+                let expr = self.parse_prec(Prec::None);
+                self.expect_token(tt::Semicolon, "Expected semicolon");
+                return Stmt::Expression(expr)
+            }   
         }
-        self.advance();
-        Stmt::Expression(expr)
     }
 
     fn parse_call(&mut self, left: Expr) -> Expr {
@@ -117,6 +199,20 @@ impl Parser {
             }
         }
         return Expr::Call { callee: Box::new(left), arguments: arguments }
+    }
+
+    fn parse_block(&mut self) -> Vec<Stmt> {
+        let mut stmts = Vec::new();
+        self.expect_token(tt::LeftBrace, "Expect '{'");
+        loop {
+            if self.peek().token == tt::RightBrace {
+                self.advance();
+                break;
+            }
+            let statement = self.parse_stmt();
+            stmts.push(statement);
+        }
+        return stmts;
     }
 
     fn get_unary_op(&self, token_type: &tt) -> UnaryOp {
@@ -196,6 +292,13 @@ impl Parser {
 
     fn peek(&self) -> &Token {
         return &self.tokens[self.current];
+    }
+
+    fn expect_token(&mut self, expected: TokenType, err: &str) {
+        if self.peek().token != expected {
+            panic!("{}", err);
+        }
+        self.advance();
     }
 }
 
@@ -392,6 +495,81 @@ mod tests {
                     value: Box::new(Expr::Number(3.0)),
                 }),
             }
+        );
+    }
+
+    #[test]
+    fn parses_let_with_value() {
+        let stmts = parse_program_helper("let x = 5;");
+        assert_eq!(
+            stmts,
+            vec![
+                Stmt::Let {
+                    name: "x".to_string(),
+                    value: Some(Expr::Number(5.0)),
+                }
+            ]
+        );
+    }
+
+    #[test]
+    fn parses_let_with_semicolon() {
+        let stmts = parse_program_helper("let x = 5;");
+        assert_eq!(
+            stmts,
+            vec![
+                Stmt::Let {
+                    name: "x".to_string(),
+                    value: Some(Expr::Number(5.0)),
+                }
+            ]
+        );
+    }
+
+    #[test]
+    fn parses_function() {
+        let stmts = parse_program_helper(
+            "fun add(a, b) { return a + b; }"
+        );
+
+        assert_eq!(
+            stmts,
+            vec![
+                Stmt::Fun {
+                    name: "add".to_string(),
+                    parameters: vec![
+                        "a".to_string(),
+                        "b".to_string(),
+                    ],
+                    body: vec![
+                        Stmt::Return(Some(
+                            Expr::Binary {
+                                left: Box::new(Expr::Identifier("a".to_string())),
+                                operator: BinaryOp::Add,
+                                right: Box::new(Expr::Identifier("b".to_string())),
+                            }
+                        ))
+                    ],
+                }
+            ]
+        );
+    }
+
+    #[test]
+    fn parses_return() {
+        let stmts = parse_program_helper("return 1 + 2;");
+
+        assert_eq!(
+            stmts,
+            vec![
+                Stmt::Return(Some(
+                    Expr::Binary {
+                        left: Box::new(Expr::Number(1.0)),
+                        operator: BinaryOp::Add,
+                        right: Box::new(Expr::Number(2.0)),
+                    }
+                ))
+            ]
         );
     }
 }
