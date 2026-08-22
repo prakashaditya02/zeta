@@ -1,10 +1,9 @@
-use crate::token::TokenType::RightParen;
-use crate::token::TokenType::While;
 use crate::token::*;
 use crate::expr::*;
 use crate::token::TokenType as tt;
 use crate::precedence::Precedence as Prec;
 use crate::stmt::Stmt;
+
 pub struct Parser {
     tokens: Vec<Token>,
     current: usize,

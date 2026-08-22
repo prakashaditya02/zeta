@@ -4,6 +4,11 @@ mod stmt;
 mod expr;
 mod parser;
 mod precedence;
+mod opcode;
+mod value;
+mod compiler;
+mod chunk;
+
 fn main() {
     println!("Hello, world!");
 }
